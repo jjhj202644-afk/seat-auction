@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>자리 경매 · 학생</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232347d6'/%3E%3Crect x='14' y='18' width='16' height='12' rx='3' fill='%23fff'/%3E%3Crect x='34' y='18' width='16' height='12' rx='3' fill='%23fff'/%3E%3Crect x='14' y='34' width='16' height='12' rx='3' fill='%23fff'/%3E%3Crect x='34' y='34' width='16' height='12' rx='3' fill='%23ffc83d'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app"></div>
+<script src="js/config.js"></script>
+<script src="js/core.js"></script>
+<script src="js/student.js"></script>
+<script>
+(function () {
+  var m = /[?&]room=(\d{6})/.exec(location.search);
+  new SA.StudentApp(document.getElementById("app"), new SA.SupabaseBackend(window.SA_CONFIG || {}), { code: m ? m[1] : "" }).boot();
+})();
+</script>
+</body>
+</html>
