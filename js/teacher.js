@@ -91,8 +91,9 @@
   };
 
   /* ---------------- 설정 ---------------- */
-  T.renderSetup = function (S0) {
-    var self = this; this.view = "setup"; this.stopPoll();
+  T.renderSetup = function (S0, edit) {
+    var self = this; this.view = "setup"; this.stopPoll(); this.closePop();
+    var joined = edit && this.st ? this.st.students.slice() : [];
     var S = JSON.parse(JSON.stringify(Object.assign(SA.defaultSettings(), S0 || {})));
     var numEdit = false, tpl = "mine";
     
@@ -119,7 +120,8 @@
       var timerVals = [[0, "없음"], [60, "1분"], [120, "2분"], [180, "3분"]];
       var custom = timerVals.every(function (t) { return t[0] !== +S.timer; });
       host.innerHTML =
-        '<h1>새 경매 설정</h1><p class="lead">위에서부터 차례로 채우고 맨 아래에서 방을 만드세요.</p>' +
+        (edit ? '<h1>설정 수정</h1><p class="lead">방 ' + esc(self.sess.code) + ' · 들어온 학생 ' + joined.length + '명은 그대로예요</p>'
+               : '<h1>새 경매 설정</h1><p class="lead">위에서부터 차례로 채우고 맨 아래에서 방을 만드세요.</p>') +
 
         '<div class="card"><div class="step"><b>1</b><h2>학급 정보</h2></div><div class="grid2">' +
           '<label class="field">화폐 단위<input class="input" data-k="unit" value="' + esc(S.unit) + '" maxlength="8"><small>예: 패티, 원, 포인트, 도장</small></label>' +
@@ -176,17 +178,17 @@
             '<div class="field">끝까지 입찰 안 한 학생' + seg("nonPart", S.nonPart, [["random", "추첨 배정"], ["gov", esc(S.govName) + " 우선"], ["teacher", "교사가 지정"]]) + '</div>' +
           '</div></div>' +
 
-        '<div class="card"><div class="step"><b>' + (govSeats.length ? 5 : 4) + '</b><h2>교사 암호</h2></div>' +
+        (edit ? "" : '<div class="card"><div class="step"><b>' + (govSeats.length ? 5 : 4) + '</b><h2>교사 암호</h2></div>' +
           '<label class="field" style="max-width:300px">암호 (4~12자)<input class="input" data-pin type="password" autocomplete="new-password" maxlength="12"><small>창이 닫혔을 때 이어하기에 필요해요</small></label>' +
-        '</div>' +
+        '</div>') +
 
         '<div class="card"><h2>점검</h2><div class="check">' +
           '<span>학생 ' + n + '</span>' +
           '<span class="' + (chk.seats === n ? "good" : "bad") + '">자리 ' + chk.seats + ' (경매 ' + chk.auction + ' · ' + esc(S.govName) + ' ' + chk.gov + ')</span>' +
         '</div>' +
           (chk.seats < n ? '<p class="err">자리가 ' + (n - chk.seats) + '개 모자라요</p>' : chk.seats > n ? '<p class="note">자리가 ' + (chk.seats - n) + '개 남아요</p>' : "") +
-          '<div class="row" style="margin-top:14px"><button class="btn lg pri" data-a="create">방 만들기</button>' +
-          '<button class="btn ghost" data-a="back">처음으로</button><span class="err" data-out></span></div>' +
+          '<div class="row" style="margin-top:14px"><button class="btn lg pri" data-a="create">' + (edit ? "저장하고 대기실로" : "방 만들기") + '</button>' +
+          '<button class="btn ghost" data-a="back">' + (edit ? "취소" : "처음으로") + '</button><span class="err" data-out></span></div>' +
         '</div>';
       bind();
     }
@@ -233,16 +235,28 @@
         sel.onchange = function () { if (sel.value) S.presat[sel.dataset.presat] = +sel.value; else delete S.presat[sel.dataset.presat]; };
       });
       host.querySelector('[data-a="numedit"]').onclick = function () { numEdit = !numEdit; render(); };
-      host.querySelector('[data-a="back"]').onclick = function () { self.renderStart(); };
+      host.querySelector('[data-a="back"]').onclick = function () {
+        if (!edit) return self.renderStart();
+        self.fresh().then(function (st) { self.enter(self.sess, st); }, function (e) { self.err(e); });
+      };
       host.querySelector('[data-a="create"]').onclick = function () {
-        var out = host.querySelector("[data-out]"), pin = host.querySelector("[data-pin]").value.trim();
+        var out = host.querySelector("[data-out]"), pinEl = host.querySelector("[data-pin]"), pin = pinEl ? pinEl.value.trim() : "";
         var chk = SA.checkLayout(S);
         if (chk.dupNumbers) { out.textContent = "자리 번호를 확인하세요"; return; }
         if (chk.auction < 1) { out.textContent = "경매할 자리가 없어요"; return; }
-        if (pin.length < 4) { out.textContent = "교사 암호를 4자 이상 넣어 주세요"; return; }
+        if (!edit && pin.length < 4) { out.textContent = "교사 암호를 4자 이상 넣어 주세요"; return; }
         // 국유지가 아닌 자리에 남은 미리 배정 지우기
         var govNos = {}; S.cells.forEach(function (t, ix) { if (t === "G") govNos[S.nums[ix]] = 1; });
         Object.keys(S.presat).forEach(function (k) { if (!govNos[k]) delete S.presat[k]; });
+        if (edit) {
+          var n = +S.studentCount, gone = joined.filter(function (p) { return p.no > n; });
+          var go = function () {
+            out.textContent = "저장 중…";
+            self.saveSetup(S).catch(function (e) { out.textContent = SA.errText(e); });
+          };
+          if (gone.length) return SA.arm(this, gone.map(function (p) { return p.no; }).join("·") + "번이 나가요 · 한 번 더", go);
+          return go();
+        }
         out.textContent = "만드는 중…";
         self.createRoom(S, pin).catch(function (e) { out.textContent = SA.errText(e); });
       };
@@ -255,6 +269,14 @@
     if (!this.opts.demo) SA.store.set(LKEY_LAST, { settings: S, savedAt: Date.now() });
     return this.be.tCreate(pin, S, SA.seatsFromSettings(S)).then(function (r) {
       return self.be.tState(r.code, r.token).then(function (st) { self.enter({ code: r.code, token: r.token }, st); });
+    });
+  };
+
+  T.saveSetup = function (S) {
+    var self = this;
+    if (!this.opts.demo) SA.store.set(LKEY_LAST, { settings: S, savedAt: Date.now() });
+    return this.be.tSetup(this.sess.code, this.sess.token, S, SA.seatsFromSettings(S)).then(function (st) {
+      self.enter(self.sess, st); self.toast("설정을 바꿨어요");
     });
   };
 
@@ -540,6 +562,7 @@
     var mg = '<button class="btn ghost" data-b="manage">관리</button><button class="btn ghost" data-b="full">전체 화면</button>';
     if (ph === "lobby") {
       b.push('<button class="btn lg pri" data-b="start"' + (this.st.students.length ? "" : " disabled") + '>1차 시작</button>');
+      b.push('<button class="btn lg" data-b="setup">설정 수정</button>');
       b.push('<span class="tv-msg">학생 칸을 누르면 내보낼 수 있어요</span>');
     } else if (ph === "bidding") {
       b.push('<button class="btn lg pri" data-b="close">지금 마감</button>');
@@ -637,6 +660,7 @@
       return this.save({}, this.studPatch(studs), seats);
     }
     if (a === "price") return this.pricePop(btn);
+    if (a === "setup") { this.overlay = false; return this.renderSetup(S, true); }
     if (a === "endq") return SA.arm(btn, "한 번 더 누르면 종료", function () { self.goEnding(); });
     if (a === "end") return this.goEnding();
     if (a === "ending") return this.afterEnding();

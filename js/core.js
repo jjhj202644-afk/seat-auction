@@ -261,6 +261,7 @@
   P.tSave   = function (code, tok, room, students, seats) {
     return this.rpc("auc_t_save", { p_code: code, p_token: tok, p_room: room || {}, p_students: students || [], p_seats: seats || [] });
   };
+  P.tSetup  = function (code, tok, settings, seats) { return this.rpc("auc_t_setup", { p_code: code, p_token: tok, p_settings: settings, p_seats: seats }); };
   P.tDelete = function (code, tok) { return this.rpc("auc_t_delete", { p_code: code, p_token: tok }); };
   P.sJoin   = function (code, no, nick, assets) { return this.rpc("auc_s_join", { p_code: code, p_no: no, p_nick: nick, p_assets: assets }); };
   P.sState  = function (code, no, tok) { return this.rpc("auc_s_state", { p_code: code, p_no: no, p_token: tok }); };
@@ -342,6 +343,20 @@
         var s = R.seats[e.no]; if (!s) return;
         ["gov", "owner", "price", "won_round", "tie", "tied", "sitter", "rent"].forEach(function (k) { if (k in e) s[k] = clone(e[k]); });
         if (s.gov == null) s.gov = false;
+      });
+      return this._tState(R);
+    });
+  };
+  D.tSetup = function (code, tok, settings, seats) {
+    return this._wrap(function () {
+      var R = this._room(code, tok); if (R.phase !== "lobby") fail("locked");
+      if (!seats || !seats.length) fail("bad_seats");
+      R.settings = clone(settings); R.bids = []; R.seats = {};
+      var n = +settings.studentCount;
+      Object.keys(R.students).forEach(function (k) { if (+k > n) delete R.students[k]; });
+      seats.forEach(function (s) {
+        R.seats[s.no] = { no: s.no, r: s.r, c: s.c, gov: !!s.gov, owner: null, price: null, won_round: null,
+                          tie: null, tied: null, sitter: s.sitter || null, rent: null };
       });
       return this._tState(R);
     });

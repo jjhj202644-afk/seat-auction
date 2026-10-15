@@ -231,6 +231,29 @@ begin
   return json_build_object('ok', true);
 end $$;
 
+-- 대기실에서 설정 고치기 (방 코드·들어온 학생은 그대로)
+create or replace function public.auc_t_setup(p_code text, p_token uuid, p_settings jsonb, p_seats jsonb)
+returns json language plpgsql security definer set search_path = public as $$
+declare r auc_rooms; s jsonb; n int;
+begin
+  r := auc__room(p_code, p_token);
+  if r.phase <> 'lobby' then raise exception 'locked'; end if;
+  if p_seats is null or jsonb_typeof(p_seats) <> 'array' or jsonb_array_length(p_seats) = 0
+     or jsonb_array_length(p_seats) > 120 then raise exception 'bad_seats'; end if;
+  n := coalesce((p_settings->>'studentCount')::int, 0);
+  if n < 1 or n > 60 then raise exception 'bad_seats'; end if;
+  update auc_rooms set settings = p_settings, updated_at = now() where code = p_code;
+  delete from auc_students where code = p_code and no > n;
+  delete from auc_bids where code = p_code;
+  delete from auc_seats where code = p_code;
+  for s in select * from jsonb_array_elements(p_seats) loop
+    insert into auc_seats(code, no, r, c, gov, sitter)
+    values (p_code, (s->>'no')::int, (s->>'r')::int, (s->>'c')::int,
+            coalesce((s->>'gov')::boolean, false), nullif(s->>'sitter','')::int);
+  end loop;
+  return auc_t_state(p_code, p_token);
+end $$;
+
 -- ---------- 학생 ----------
 create or replace function public.auc_s_join(p_code text, p_no int, p_nick text, p_assets int)
 returns json language plpgsql security definer set search_path = public as $$
@@ -369,14 +392,14 @@ end $$;
 revoke all on function
   public.auc__cleanup(), public.auc__room(text, uuid), public.auc__stud(text, int, uuid), public.auc__allowed(text, int),
   public.auc_t_create(text, jsonb, jsonb), public.auc_t_login(text, text), public.auc_t_state(text, uuid),
-  public.auc_t_save(text, uuid, jsonb, jsonb, jsonb), public.auc_t_delete(text, uuid),
+  public.auc_t_save(text, uuid, jsonb, jsonb, jsonb), public.auc_t_delete(text, uuid), public.auc_t_setup(text, uuid, jsonb, jsonb),
   public.auc_s_join(text, int, text, int), public.auc_s_state(text, int, uuid), public.auc_s_assets(text, int, uuid, int),
   public.auc_s_bid(text, int, uuid, jsonb), public.auc_s_pick(text, int, uuid, int), public.auc_s_rent(text, int, uuid, int, int)
 from public;
 
 grant execute on function
   public.auc_t_create(text, jsonb, jsonb), public.auc_t_login(text, text), public.auc_t_state(text, uuid),
-  public.auc_t_save(text, uuid, jsonb, jsonb, jsonb), public.auc_t_delete(text, uuid),
+  public.auc_t_save(text, uuid, jsonb, jsonb, jsonb), public.auc_t_delete(text, uuid), public.auc_t_setup(text, uuid, jsonb, jsonb),
   public.auc_s_join(text, int, text, int), public.auc_s_state(text, int, uuid), public.auc_s_assets(text, int, uuid, int),
   public.auc_s_bid(text, int, uuid, jsonb), public.auc_s_pick(text, int, uuid, int), public.auc_s_rent(text, int, uuid, int, int)
 to anon, authenticated;
