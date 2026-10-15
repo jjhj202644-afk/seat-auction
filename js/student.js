@@ -76,9 +76,19 @@
   };
   P.startPoll = function () {
     var self = this; this.stopPoll();
-    this._poll = setInterval(function () { self.refresh(); }, POLL);
+    var gen = this._gen = (this._gen || 0) + 1;
+    var loop = function () {
+      if (gen !== self._gen || !self.sess) return;
+      var ph = self.st && self.st.room.phase;
+      // 마감 뒤에는 공개를 놓치지 않게 더 자주 확인
+      self._poll = setTimeout(function () {
+        if (gen !== self._gen) return;
+        self.refresh().then(loop, loop);
+      }, ph === "closed" ? 600 : POLL);
+    };
+    loop();
   };
-  P.stopPoll = function () { clearInterval(this._poll); this._poll = null; };
+  P.stopPoll = function () { clearTimeout(this._poll); this._poll = null; this._gen = (this._gen || 0) + 1; };
   P.refresh = function () {
     var self = this; if (!this.sess || this.busy) return Promise.resolve();
     return this.be.sState(this.sess.code, this.sess.no, this.sess.token).then(function (st) { if (!self.busy) self.setState(st); })
@@ -191,7 +201,7 @@
     var cd = this.root.querySelector("[data-cd]");
     if (r.phase === "revealed" && r.reveal_at) {
       var ms = this.clock.left(r.reveal_at);
-      if (ms > 0 && cd) cd.textContent = Math.ceil(ms / 1000);
+      if (ms > 0 && cd) cd.textContent = Math.min(3, Math.ceil(ms / 1000));
       if (ms <= 0 && cd) { this.lastKey = ""; this.render(); }
     }
   };
@@ -241,7 +251,7 @@
     if (ph === "closed") return '<div class="st-card st-wait"><div class="st-big">마감</div><div class="st-mid">공개를 기다려요</div></div>' + this.sentHTML();
     if (ph === "revealed") {
       if (r.reveal_at && this.clock.left(r.reveal_at) > 0)
-        return '<div class="st-card st-wait"><div class="bigseat" data-cd>' + Math.ceil(this.clock.left(r.reveal_at) / 1000) + '</div><div class="st-mid">공개</div></div>';
+        return '<div class="st-card st-wait"><div class="bigseat" data-cd>' + Math.min(3, Math.ceil(this.clock.left(r.reveal_at) / 1000)) + '</div><div class="st-mid">공개</div></div>';
       return this.resultHTML();
     }
     if (ph === "ending") return '<div class="st-card st-wait"><div class="st-big">경매 종료</div><div class="st-mid">잠시 기다려요</div></div>' + this.ownHTML();

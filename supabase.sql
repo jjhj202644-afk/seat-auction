@@ -96,14 +96,19 @@ end $$;
 -- 한 학생이 이번 차수에 입찰할 수 있는 자리 수 (-1 = 제한 없음)
 create or replace function public.auc__allowed(p_code text, p_no int)
 returns int language plpgsql security definer set search_path = public as $$
-declare mx int; owned int; presat boolean;
+declare mx int; pr int; owned int; presat boolean; lft int;
 begin
-  select coalesce((settings->>'maxSeats')::int, 1) into mx from auc_rooms where code = p_code;
-  if mx <= 0 then return -1; end if;
+  select coalesce((settings->>'maxSeats')::int, 1), coalesce((settings->>'perRound')::int, 0)
+    into mx, pr from auc_rooms where code = p_code;
   select count(*) into owned from auc_seats where code = p_code and owner = p_no;
   select exists(select 1 from auc_seats where code = p_code and gov and sitter = p_no) into presat;
-  if mx = 1 and presat then return 0; end if;
-  return greatest(mx - owned, 0);
+  if mx <= 0 then lft := -1;
+  elsif mx = 1 and presat then lft := 0;
+  else lft := greatest(mx - owned, 0);
+  end if;
+  -- 차수마다 한 자리씩만 입찰
+  if pr = 1 and lft <> 0 then return 1; end if;
+  return lft;
 end $$;
 
 -- ---------- 교사 ----------
@@ -265,7 +270,7 @@ begin
              'settings', json_build_object(
                 'unit', r.settings->'unit', 'govName', r.settings->'govName', 'studentCount', r.settings->'studentCount',
                 'rows', r.settings->'rows', 'cols', r.settings->'cols', 'deskPos', r.settings->'deskPos',
-                'startPrice', r.settings->'startPrice', 'maxSeats', r.settings->'maxSeats',
+                'startPrice', r.settings->'startPrice', 'maxSeats', r.settings->'maxSeats', 'perRound', r.settings->'perRound',
                 'timer', r.settings->'timer', 'tieMode', r.settings->'tieMode')),
     'me', json_build_object('no', s.no, 'nick', s.nick, 'assets', s.assets, 'allowed', auc__allowed(p_code, p_no)),
     'seats', coalesce((select json_agg(json_build_object('no', x.no, 'r', x.r, 'c', x.c, 'gov', x.gov,

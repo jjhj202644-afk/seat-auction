@@ -87,15 +87,16 @@
   /* ---------------- 규칙 ---------------- */
   // 한 학생이 이번 차수에 입찰할 수 있는 자리 수 (-1 = 제한 없음)
   SA.allowed = function (settings, seats, no) {
-    var mx = +(settings.maxSeats || 0);
-    if (mx <= 0) return -1;
-    var owned = 0, presat = false;
+    var mx = +(settings.maxSeats || 0), owned = 0, presat = false, left;
     seats.forEach(function (s) {
       if (s.owner === no) owned++;
       if (s.gov && s.sitter === no) presat = true;
     });
-    if (mx === 1 && presat) return 0;
-    return Math.max(mx - owned, 0);
+    if (mx <= 0) left = -1;
+    else if (mx === 1 && presat) left = 0;
+    else left = Math.max(mx - owned, 0);
+    if (+settings.perRound === 1 && left !== 0) return 1; // 차수마다 한 자리씩
+    return left;
   };
   SA.isOpenSeat = function (s) { return !s.gov && s.owner == null && !s.tie; };
 
@@ -224,7 +225,7 @@
       v: 1, unit: "패티", govName: "국유지", studentCount: 26,
       rows: t.rows, cols: t.cols, cells: t.cells, deskPos: "bottom", corner: "br", dir: "row",
       nums: SA.autoNumber(t.rows, t.cols, t.cells, "br", "row"),
-      presat: {}, startPrice: 0, maxSeats: 1, tieMode: "auto", timer: 120, nonPart: "random"
+      presat: {}, startPrice: 0, maxSeats: 1, perRound: 0, tieMode: "auto", timer: 120, nonPart: "random"
     };
   };
 
@@ -374,7 +375,7 @@
         now: iso(Date.now()),
         room: { code: R.code, phase: R.phase, round: R.round, deadline: iso(R.deadline), reveal_at: iso(R.reveal_at),
                 settings: { unit: S.unit, govName: S.govName, studentCount: S.studentCount, rows: S.rows, cols: S.cols,
-                            deskPos: S.deskPos, startPrice: S.startPrice, maxSeats: S.maxSeats, timer: S.timer, tieMode: S.tieMode } },
+                            deskPos: S.deskPos, startPrice: S.startPrice, maxSeats: S.maxSeats, perRound: S.perRound, timer: S.timer, tieMode: S.tieMode } },
         me: { no: s.no, nick: s.nick, assets: s.assets, allowed: SA.allowed(S, seats, s.no) },
         seats: seats.map(function (z) { var o = clone(z); o.owner_nick = nick(z.owner); o.sitter_nick = nick(z.sitter); return o; }),
         nicks: nicks,

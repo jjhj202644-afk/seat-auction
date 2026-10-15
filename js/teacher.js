@@ -165,7 +165,11 @@
         '<div class="card"><div class="step"><b>' + (govSeats.length ? 4 : 3) + '</b><h2>경매 규칙</h2></div>' +
           '<div class="grid2">' +
             '<label class="field">시작가 (' + esc(S.unit) + ')<input class="input" data-k="startPrice" type="number" min="0" value="' + (+S.startPrice || 0) + '"><small>0이면 누구나 0으로 입찰할 수 있어요</small></label>' +
-            '<div class="field">한 사람이 가질 수 있는 자리' + seg("maxSeats", S.maxSeats, [[1, "1자리"], [2, "2자리"], [3, "3자리"], [0, "제한 없음"]]) + '<small>2자리 이상이면 남는 자리를 빌려줄 수 있어요</small></div>' +
+            '<div class="field" style="grid-column:1/-1">자리 소유' + seg("own", +S.maxSeats === 1 ? "one" : "multi", [["one", "한 명당 한 자리"], ["multi", "여러 자리 (임대 가능)"]]) +
+              (+S.maxSeats === 1 ? '<small>모두 한 자리씩 · 임대는 ' + esc(S.govName) + '만</small>' :
+                '<div class="row" style="margin-top:6px;gap:16px"><div class="field">최대' + seg("maxSeats", S.maxSeats, [[2, "2자리"], [3, "3자리"], [0, "제한 없음"]]) + '</div>' +
+                '<div class="field">차수마다 입찰' + seg("perRound", +S.perRound === 1 ? 1 : 0, [[1, "한 자리씩"], [0, "여러 자리"]]) + '</div></div>' +
+                '<small>남는 자리 임대 가능</small>') + '</div>' +
             '<div class="field">동점' + seg("tieMode", S.tieMode, [["auto", "자동 추첨"], ["teacher", "교사 선택"]]) + '</div>' +
             '<div class="field">입찰 시간' + seg("timer", custom ? "x" : S.timer, timerVals.concat([["x", "직접"]])) +
               (custom ? '<input class="input" data-k="timer" type="number" min="10" max="900" value="' + (+S.timer || 90) + '" style="margin-top:6px"><small>초 단위</small>' : "") + '</div>' +
@@ -207,6 +211,8 @@
               tpl = v; var t = SA.makeTemplate(v, +S.studentCount || 26);
               S.rows = t.rows; S.cols = t.cols; S.cells = t.cells; S.presat = {}; renumber();
             } else if (k === "maxSeats") S.maxSeats = +v;
+            else if (k === "own") { if (v === "one") S.maxSeats = 1; else if (+S.maxSeats === 1) S.maxSeats = 2; }
+            else if (k === "perRound") S.perRound = +v;
             else if (k === "timer") S.timer = v === "x" ? 90 : +v;
             else { S[k] = v; if (k === "corner" || k === "dir") renumber(); }
             render();
@@ -335,7 +341,14 @@
     var top = this.topHTML(), main = this.mainHTML(), bottom = this.bottomHTML();
     var q = this.root.querySelector.bind(this.root);
     if (top !== this.lastTop) { q("[data-top]").innerHTML = top; this.lastTop = top; }
-    if (main !== this.lastMain) { q("[data-main]").innerHTML = main; this.lastMain = main; this.bindMain(); this.fit(); this.drawQR(); }
+    if (main !== this.lastMain) {
+      // 열려 있는 작은 창은 같은 단계라면 그대로 둠 (화면이 새로 그려져도 닫히지 않게)
+      var keep = this.pop && this.popPhase === this.st.room.phase + this.st.room.round ? this.pop : null;
+      if (!keep) this.closePop();
+      q("[data-main]").innerHTML = main; this.lastMain = main;
+      if (keep) q("[data-main]").appendChild(keep);
+      this.bindMain(); this.fit(); this.drawQR();
+    }
     if (bottom !== this.lastBottom) { q("[data-bottom]").innerHTML = bottom; this.lastBottom = bottom; this.bindBottom(); }
     this.tick();
     if (this.overlay) this.renderManage();
@@ -381,11 +394,15 @@
     });
   };
 
+  T.counting = function () {
+    var r = this.st.room;
+    return r.phase === "revealed" && !!r.reveal_at && this.clock.left(r.reveal_at) > 0;
+  };
   T.mainHTML = function () {
     var r = this.st.room;
     if (r.phase === "lobby") return this.lobbyHTML();
-    var html = this.mapHTML();
-    if (r.phase === "revealed" && !this.st.seats.some(function (s) { return s.tie; })) {
+    var html = this.mapHTML() + '<!--' + this.counting() + '-->';
+    if (r.phase === "revealed" && !this.counting() && !this.st.seats.some(function (s) { return s.tie; })) {
       var info = (r.meta.rounds || {})[r.round];
       if (info && !info.bids) html += '<div class="banner">이번 차수 입찰이 없었어요</div>';
     }
@@ -426,6 +443,8 @@
     var r = this.st.room, ph = r.phase, S = r.settings, u = this.unit(), gn = esc(S.govName || "국유지");
     var no = '<span class="no">' + s.no + '</span>';
     var attrs = ' data-seat="' + s.no + '"';
+    // 3·2·1 동안은 이번 차수 결과를 감춤
+    if (this.counting() && !s.gov && (s.tie || (s.owner != null && s.won_round === r.round))) return '<div class="seat"' + attrs + '>' + no + '</div>';
     if (s.gov) {
       if (ph === "rent" && s.sitter == null) {
         return '<div class="seat gov has click need"' + attrs + '>' + no + '<span class="tag">' + gn + '</span>' +
@@ -535,7 +554,7 @@
       } else {
         var why = SA.endReason(this.st);
         if (why) { b.push('<button class="btn lg pri" data-b="end">경매 마치기</button>'); b.push('<span class="tv-msg">' + esc(why) + '</span>'); }
-        else { b.push('<button class="btn lg pri" data-b="next">' + (r.round + 1) + '차 시작</button>'); b.push('<button class="btn lg" data-b="endq">경매 종료</button>'); }
+        else { b.push('<button class="btn lg pri" data-b="next">' + (r.round + 1) + '차 시작</button>'); b.push('<button class="btn lg" data-b="price">시작가 ' + num(+r.settings.startPrice || 0) + '</button>'); b.push('<button class="btn lg" data-b="endq">경매 종료</button>'); }
       }
     } else if (ph === "ending") {
       b.push('<button class="btn lg pri" data-b="ending">다음</button>');
@@ -558,7 +577,6 @@
   };
   T.bindMain = function () {
     var self = this, ph = this.st.room.phase;
-    this.closePop();
     this.root.querySelectorAll("[data-chip]").forEach(function (el) {
       el.onclick = function () { self.chipPop(+el.dataset.chip, el); };
     });
@@ -589,7 +607,7 @@
     if (r.phase === "revealed" && r.reveal_at) {
       var ms = this.clock.left(r.reveal_at);
       if (ms > 0) {
-        var n = Math.ceil(ms / 1000);
+        var n = Math.min(3, Math.ceil(ms / 1000));
         if (!cd) { cd = SA.h("div", { class: "count" }); tv.appendChild(cd); }
         if (cd.dataset.n !== String(n)) { cd.dataset.n = n; cd.innerHTML = "<span>" + n + "</span>"; }
         return;
@@ -618,6 +636,7 @@
       tied.forEach(function (s) { var w = SA.pick(s.tie.cands); self.tiePatch(s, w, seats, studs); });
       return this.save({}, this.studPatch(studs), seats);
     }
+    if (a === "price") return this.pricePop(btn);
     if (a === "endq") return SA.arm(btn, "한 번 더 누르면 종료", function () { self.goEnding(); });
     if (a === "end") return this.goEnding();
     if (a === "ending") return this.afterEnding();
@@ -647,7 +666,7 @@
                                open: res.wins.length + res.ties.length + res.unsold.length };
       var studs = {}; Object.keys(spend).forEach(function (k) { studs[k] = -spend[k]; });
       self.flipDone[r.round] = false;
-      return self.save({ phase: "revealed", reveal_in: 3, meta: meta }, self.studPatch(studs), seats);
+      return self.save({ phase: "revealed", reveal_in: 3.6, meta: meta }, self.studPatch(studs), seats);
     }, function (e) { self.busy = false; self.err(e); });
   };
   // studs: {no: 더할 금액}
@@ -734,7 +753,7 @@
     this.closePop();
     var main = this.root.querySelector("[data-main]");
     var p = SA.h("div", { class: "pop" }, '<button class="pop-x" aria-label="닫기">×</button>' + html);
-    main.appendChild(p); this.pop = p;
+    main.appendChild(p); this.pop = p; this.popPhase = this.st.room.phase + this.st.room.round;
     var a = anchor.getBoundingClientRect(), m = main.getBoundingClientRect();
     var x = a.left - m.left + a.width / 2 - p.offsetWidth / 2, y = a.bottom - m.top + 8;
     if (y + p.offsetHeight > m.height) y = Math.max(8, a.top - m.top - p.offsetHeight - 8);
@@ -760,6 +779,17 @@
     }
     if (auto) p.querySelector("[data-draw]").onclick = function () { go(SA.pick(s.tie.cands)); };
     else p.querySelectorAll("[data-w]").forEach(function (b) { b.onclick = function () { go(+b.dataset.w); }; });
+  };
+  T.pricePop = function (btn) {
+    var self = this, S = this.S();
+    var p = this.openPop(btn, '<h3>다음 차수 시작가 (' + this.unit() + ')</h3><div class="row"><input class="input" data-sp inputmode="numeric" style="width:160px" value="' + (+S.startPrice || 0) + '">' +
+      '<button class="btn pri" data-ok>저장</button></div>');
+    var inp = p.querySelector("[data-sp]"); inp.focus(); inp.select();
+    p.querySelector("[data-ok]").onclick = function () {
+      var v = Math.max(0, Math.round(+inp.value.replace(/[,\s]/g, "") || 0));
+      var ns = JSON.parse(JSON.stringify(S)); ns.startPrice = v;
+      self.closePop(); self.save({ settings: ns }).then(function () { self.toast("시작가 " + num(v)); });
+    };
   };
   T.rentPop = function (s, el) {
     var self = this, gn = esc(this.st.room.settings.govName);
@@ -934,7 +964,7 @@
       var d = "";
       if (detail) {
         var lines = [];
-        if (s.gov) lines.push(esc(gn));
+        if (s.gov) { if (s.sitter != null) lines.push(esc(gn)); }
         else if (s.owner != null && s.owner !== s.sitter) lines.push("주인 " + esc(nk(s.owner)));
         if (s.price != null) lines.push("낙찰가 " + num(s.price));
         if (s.sitter != null && (s.gov || s.owner !== s.sitter) && s.rent != null) lines.push("임대료 " + num(s.rent));
